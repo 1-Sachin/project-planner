@@ -1,0 +1,10 @@
+.vercel
+.DS_Store
+node_modules
+*.log
+.claude/
+
+# Your project data — keep private, don't publish to GitHub
+*.csv
+*.json
+!vercel.json
