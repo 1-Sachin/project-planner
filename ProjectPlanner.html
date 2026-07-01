@@ -700,11 +700,15 @@ function setCloud(txt, color){
 async function cloudPush(){
   const c=syncCfg(); if(!c.enabled || !syncAvailable()) return;
   setCloud('syncing…','#fef3c7');
+  const stamp = workspace.updatedAt;               // snapshot: what we're about to upload
   try{
     const r=await fetch('/api/workspace?id='+SYNC_ID,{method:'PUT',headers:authHeaders(),
-      body:JSON.stringify({workspace, updatedAt: workspace.updatedAt||nowMs()})});
+      body:JSON.stringify({workspace, updatedAt: stamp||nowMs()})});
     if(r.status===401){ setCloud('auth error','#fee2e2'); return; }
-    if(r.ok){ workspace.dirty=false; saveWorkspace(); }   // local changes confirmed in cloud
+    // Only clear dirty if NO new edit happened while this push was in flight,
+    // otherwise we'd falsely mark unsynced edits as saved.
+    if(r.ok && workspace.updatedAt===stamp){ workspace.dirty=false; saveWorkspace(); }
+    else if(r.ok){ schedulePush(); }               // edited during push -> push again
     setCloud(r.ok?'synced':'error', r.ok?'#d1fae5':'#fee2e2');
   }catch(e){ setCloud('offline','#fde68a'); }
 }
@@ -725,6 +729,10 @@ async function cloudPull(){
     if(r.status===401) return {status:'unauthorized'};
     if(!r.ok) return {status:'error'};
     const j=await r.json();
+    // Re-check AFTER the network round-trip: the user may have started editing
+    // (or made a change) while the request was in flight. If so, keep local.
+    if(editing) return {status:'busy'};
+    if(workspace.dirty){ schedulePush(); return {status:'kept-local'}; }
     const remote=j&&j.data;
     if(remote && remote.workspace && remote.workspace.order && remote.workspace.order.length){
       if((remote.updatedAt||0) > (workspace.updatedAt||0)){
