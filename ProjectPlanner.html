@@ -341,6 +341,7 @@
   <div class="spacer" style="flex:1"></div>
   <span class="pill" id="stCloud" title="Cloud sync status">Cloud: off</span>
   <span class="pill" id="stSaved">Saved</span>
+  <span class="pill" id="stVersion" title="Build version" style="background:#e0e7ff"></span>
 </div>
 
 <!-- Detail panel -->
@@ -1182,11 +1183,15 @@ function renderStatus(){
 }
 
 // ---------- Inline editing ----------
-gridBody.addEventListener('click', e=>{
+// Open the editor on mousedown (not click): committing a previous edit re-renders
+// the grid, which would destroy the cell mid-click and require a second click.
+gridBody.addEventListener('mousedown', e=>{
+  if(e.target.closest('.editor')) return;      // clicking inside the already-open editor
+  if(e.target.closest('.twisty')) return;      // let the collapse toggle handle it
   const td=e.target.closest('td'); if(!td) return;
   const idx=+td.dataset.idx;
   selectRow(idx);
-  if(td.classList.contains('editable') && !e.target.closest('.twisty')){
+  if(td.classList.contains('editable')){
     startEdit(td, idx, td.dataset.col);
   }
 });
@@ -1202,7 +1207,7 @@ function selectRow(idx){
 }
 
 function startEdit(td, idx, col){
-  if(editing) commitEdit();
+  if(editing){ commitEdit(); td=gridBody.querySelector(`td[data-idx="${idx}"][data-col="${col}"]`); if(!td) return; }
   const t=state.tasks[idx];
   let input;
   if(col==='start'){
@@ -2057,7 +2062,10 @@ window.addEventListener('storage', e=>{
   }catch(err){}
 });
 
+const APP_VERSION='v7 (2026-07-01)';
 (function init(){
+  const vEl=document.getElementById('stVersion'); if(vEl) vEl.textContent=APP_VERSION;
+  console.log('Project Planner build', APP_VERSION);
   loadWorkspace();
   loadFrom(workspace.byId[workspace.currentId] || newProjectData('TrueSight'));
   refreshProjectDropdown();
