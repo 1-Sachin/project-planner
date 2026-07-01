@@ -1373,7 +1373,11 @@ function expandAll(v){ state.tasks.forEach(t=>t.collapsed=v); scheduleSave(); re
 // ---------- Detail panel ----------
 const detail=document.getElementById('detail');
 function openDetail(idx){ selectRow(idx); detail.classList.add('open'); renderDetail(); }
-document.getElementById('detailClose').onclick=()=>detail.classList.remove('open');
+document.getElementById('detailClose').onclick=()=>{
+  if(document.activeElement && document.activeElement.blur) document.activeElement.blur(); // commit focused field
+  detail.classList.remove('open');
+  render();   // reflect any edits (e.g. notes) in the grid immediately
+};
 function renderDetail(){
   const idx=curIdx(); if(idx<0){ detail.classList.remove('open'); return; }
   const t=state.tasks[idx];
@@ -1416,9 +1420,13 @@ function renderDetail(){
   const refreshComputed=()=>{
     const f=document.getElementById('d_finish'); if(f) f.value = t.finish? fmtISO(t.finish):'';
   };
-  const bind=(id,fn,ev)=>{ const el=document.getElementById(id); if(!el) return;
-    el.addEventListener(ev||'change',()=>{ fn(el); scheduleSave(); render({skipDetail:true}); refreshComputed(); }); };
-  bind('d_name',el=>t.name=el.value,'input');
+  // Save on 'input' (fires on every keystroke / change) so a value is committed
+  // even if the field never blurs — e.g. when closing via the non-focusable X.
+  // 'input' saves the model without a heavy re-render; 'change' (blur) also renders.
+  const bind=(id,fn)=>{ const el=document.getElementById(id); if(!el) return;
+    el.addEventListener('input', ()=>{ fn(el); scheduleSave(); refreshComputed(); });
+    el.addEventListener('change',()=>{ fn(el); scheduleSave(); render({skipDetail:true}); refreshComputed(); }); };
+  bind('d_name',el=>t.name=el.value);
   bind('d_type',el=>{ t.milestone=el.value==='milestone'; if(t.milestone)t.duration=0; else if(t.duration===0)t.duration=1; });
   bind('d_dur',el=>t.duration=Math.max(0,parseInt(el.value)||0));
   bind('d_start',el=>t.startFixed=el.value||null);
