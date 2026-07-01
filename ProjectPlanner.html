@@ -118,11 +118,10 @@
   .cell.num { text-align: center; }
   .cell.center { text-align: center; }
   td.editable { cursor: text; }
-  td.ready-cell { cursor: pointer; user-select: none; color: #065f46; font-weight: 700; }
-  td.ready-cell.ready-on { background: #86efac !important; }
-  tr.done-row .taskname, tr.done-row td.cell { text-decoration: line-through; color: #9ca3af; }
-  tr.done-row td.ready-cell { text-decoration: none; }
-  .done-check { cursor: pointer; width: 15px; height: 15px; }
+  .status-sel { width: 100%; border: 1px solid var(--border); border-radius: 4px; font-size: 12px; padding: 2px 4px; font-family: inherit; background: #fff; cursor: pointer; }
+  tr.status-ready td { background: #fef9c3 !important; }        /* pale yellow */
+  tr.status-inprogress td { background: #d6e4ff !important; }   /* light navy blue */
+  tr.status-done .taskname, tr.status-done td.cell { text-decoration: line-through; color: #9ca3af; }
   tr.task-row:hover td { background: var(--row-hover); }
   tr.task-row.selected td { background: var(--row-sel); }
   tr.task-row.summary td { font-weight: 700; }
@@ -455,22 +454,24 @@ const COLUMNS = [
   { key:'pred',  label:'Pred',        w:60,  cls:'center' },
   { key:'pct',   label:'%',           w:44,  cls:'center' },
   { key:'res',   label:'Resource',    w:110, cls:'' },
-  { key:'ready', label:'Ready',       w:60,  cls:'center' },
-  { key:'done',  label:'Done',        w:56,  cls:'center' },
+  { key:'status',label:'Status',      w:120, cls:'' },
   { key:'notes', label:'Notes',       w:180, cls:'' },
 ];
 
 // ---------- Task model ----------
 function newTask(opts={}){
-  return Object.assign({
+  const o = Object.assign({
     id: uid(), name:'New Task', level:0, collapsed:false,
     duration:1, milestone:false,
     startFixed:null,          // ISO string if user pinned a start
     preds:[],                 // array of {id, type:'FS', lag:0}
-    percent:0, resource:'', notes:'', ready:false, done:false,
+    percent:0, resource:'', notes:'', status:'',   // status: '' | 'ready' | 'in-progress' | 'done'
     // computed (not persisted authoritatively but recomputed):
     start:null, finish:null, critical:false, rowIndex:0
   }, opts);
+  // Migrate old ready/done booleans into the new status field.
+  if(!o.status && (o.done||o.ready)) o.status = o.done ? 'done' : 'ready';
+  return o;
 }
 
 // ---------- Hierarchy helpers ----------
@@ -816,7 +817,7 @@ function serialize(){
     tasks: state.tasks.map(t=>({
       id:t.id, name:t.name, level:t.level, collapsed:t.collapsed, duration:t.duration,
       milestone:t.milestone, startFixed:t.startFixed, preds:t.preds, percent:t.percent,
-      resource:t.resource, notes:t.notes, ready:!!t.ready, done:!!t.done
+      resource:t.resource, notes:t.notes, status:t.status||''
     }))
   };
 }
@@ -951,6 +952,15 @@ function render(opts){
   if(!opts.skipDetail && selectedId && document.getElementById('detail').classList.contains('open')) renderDetail();
 }
 
+function statusRowClass(s){
+  return s==='done'?' status-done':s==='ready'?' status-ready':s==='in-progress'?' status-inprogress':'';
+}
+const STATUS_OPTIONS=[['','—'],['ready','Ready'],['in-progress','In progress'],['done','Done']];
+function buildStatusCell(td, t){
+  td.className='cell';
+  td.innerHTML='<select class="status-sel">'+STATUS_OPTIONS.map(([v,l])=>
+    `<option value="${v}"${(t.status||'')===v?' selected':''}>${l}</option>`).join('')+'</select>';
+}
 function buildNameCell(td, t, i){
   td.className='editable'; td.innerHTML='';
   const wrap=document.createElement('div'); wrap.className='taskname-wrap';
@@ -982,15 +992,14 @@ function softRefresh(){
     vis.forEach(i=>{
       const t=state.tasks[i];
       const tr=gridBody.querySelector(`tr.task-row[data-idx="${i}"]`);
-      if(tr) tr.className='task-row'+(isSummary(i)?' summary':'')+(t.milestone?' milestone':'')+(t.done?' done-row':'')+(t.id===selectedId?' selected':'');
+      if(tr) tr.className='task-row'+(isSummary(i)?' summary':'')+(t.milestone?' milestone':'')+statusRowClass(t.status)+(t.id===selectedId?' selected':'');
       COLUMNS.forEach(col=>{
         if(col.key==='#') return;
         if(editing && editing.idx===i && editing.col===col.key) return;  // don't disturb the open editor
         const td=gridBody.querySelector(`td[data-idx="${i}"][data-col="${col.key}"]`);
         if(!td) return;
         if(col.key==='name') buildNameCell(td,t,i);
-        else if(col.key==='ready'){ td.className='cell center ready-cell'+(t.ready?' ready-on':''); td.textContent=t.ready?'✓':''; }
-        else if(col.key==='done'){ const cb=td.querySelector('.done-check'); if(cb) cb.checked=!!t.done; else { td.className='cell center'; td.innerHTML='<input type="checkbox" class="done-check"'+(t.done?' checked':'')+'>'; } }
+        else if(col.key==='status'){ const sel=td.querySelector('.status-sel'); if(sel) sel.value=t.status||''; else buildStatusCell(td,t); }
         else td.textContent=cellText(t,i,col.key);
       });
     });
@@ -1013,7 +1022,7 @@ function renderGrid(){
     num++;
     if(isHidden(i)) return;
     const tr=document.createElement('tr');
-    tr.className='task-row'+(isSummary(i)?' summary':'')+(t.milestone?' milestone':'')+(t.done?' done-row':'')+(t.id===selectedId?' selected':'');
+    tr.className='task-row'+(isSummary(i)?' summary':'')+(t.milestone?' milestone':'')+statusRowClass(t.status)+(t.id===selectedId?' selected':'');
     tr.dataset.idx=i;
     tr.style.height=ROW_H+'px';
 
@@ -1024,12 +1033,8 @@ function renderGrid(){
         td.className='row-idx'; td.textContent=num;
       } else if(col.key==='name'){
         buildNameCell(td, t, i);
-      } else if(col.key==='ready'){
-        td.className='cell center ready-cell'+(t.ready?' ready-on':'');
-        td.textContent=t.ready?'✓':'';
-      } else if(col.key==='done'){
-        td.className='cell center';
-        td.innerHTML='<input type="checkbox" class="done-check"'+(t.done?' checked':'')+'>';
+      } else if(col.key==='status'){
+        buildStatusCell(td, t);
       } else {
         td.className='cell '+(col.cls==='center'||col.cls==='num'?'center':'');
         td.textContent=cellText(t,i,col.key);
@@ -1237,24 +1242,20 @@ function renderStatus(){
 gridBody.addEventListener('click', e=>{
   if(e.target.closest('.editor')) return;      // clicking inside the open editor
   if(e.target.closest('.twisty')) return;      // let the collapse toggle handle it
+  if(e.target.closest('.status-sel')) return;   // let the dropdown handle its own clicks
   const td=e.target.closest('td'); if(!td) return;
   const idx=+td.dataset.idx;
   selectRow(idx);
-  if(td.dataset.col==='ready'){                 // toggle green/white, no text editor
-    const t=state.tasks[idx]; t.ready=!t.ready;
-    td.classList.toggle('ready-on', t.ready); td.textContent=t.ready?'✓':'';
-    scheduleSave();
-    return;
-  }
   if(td.classList.contains('editable')) startEdit(td, idx, td.dataset.col);
 });
-// Done checkbox: tick -> strike through the whole row; untick -> remove it.
+// Status dropdown: colour the row (ready=yellow, in-progress=blue) or strike it (done).
 gridBody.addEventListener('change', e=>{
-  const cb=e.target.closest('.done-check'); if(!cb) return;
-  const tr=cb.closest('tr'); if(!tr) return;
+  const sel=e.target.closest('.status-sel'); if(!sel) return;
+  const tr=sel.closest('tr'); if(!tr) return;
   const idx=+tr.dataset.idx;
-  state.tasks[idx].done=cb.checked;
-  tr.classList.toggle('done-row', cb.checked);
+  state.tasks[idx].status=sel.value;
+  tr.classList.remove('status-ready','status-inprogress','status-done');
+  if(sel.value) tr.classList.add('status-'+(sel.value==='in-progress'?'inprogress':sel.value));
   scheduleSave();
 });
 gridBody.addEventListener('dblclick', e=>{
@@ -1667,14 +1668,14 @@ const CSV_HELP=[
   '#   Predecessors  comma-separated ID numbers, e.g. 3  or  5+2d  (finish-to-start link; +Nd adds N working days of lag).',
   '#   % Complete    0-100 (blank/ignored for Summary rows — rolled up from children).',
   '#   Resource      free text (who is doing it).',
-  '#   Ready         Yes = marked ready (green); blank = not ready.',
-  '#   Done          Yes = completed (row shown struck-through); blank = not done.',
+  '#   Status        one of: Ready | In progress | Done | (blank). Ready=yellow row, In progress=blue row, Done=struck-through.',
   '#   Notes         free text.',
   '# Tips: to ADD a task, insert a new row with the desired Level (IDs are re-mapped on import, so exact numbering need not be sequential).',
   '#       to NEST under an epic, give the row a higher Level than the epic above it. Do not rename the header row.',
 ];
 function exportCsv(){
-  const rows=[['ID','Level','Task Name','Type','Duration','Start','Finish','Predecessors','% Complete','Resource','Ready','Done','Notes']];
+  const statusLabel={ready:'Ready','in-progress':'In progress',done:'Done'};
+  const rows=[['ID','Level','Task Name','Type','Duration','Start','Finish','Predecessors','% Complete','Resource','Status','Notes']];
   state.tasks.forEach((t,i)=>{
     const summ=isSummary(i);
     rows.push([
@@ -1683,7 +1684,7 @@ function exportCsv(){
       summ?'':(t.milestone?0:t.duration),
       t.start?fmtISO(t.start):'',
       t.finish?fmtISO(t.finish):'',
-      predLabel(t), t.percent||0, t.resource||'', t.ready?'Yes':'', t.done?'Yes':'', t.notes||''
+      predLabel(t), t.percent||0, t.resource||'', statusLabel[t.status]||'', t.notes||''
     ]);
   });
   const esc=c=>{ const s=String(c); return /[",\r\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
@@ -1715,8 +1716,7 @@ function importPlannerCsv(text, fname){
     pred:find(/predecessor|^pred/),
     pct:find(/complete|^%/),
     res:find(/resource|assignee/),
-    ready:find(/^ready$/),
-    done:find(/^done$/),
+    status:find(/^status$/),
     notes:find(/^notes$/),
     ms:find(/milestone/)
   };
@@ -1738,8 +1738,7 @@ function importPlannerCsv(text, fname){
       startFixed: sd? fmtISO(sd):null,
       percent: Math.min(100, Math.max(0, parseInt(cell(r,ci.pct))||0)),
       resource: cell(r,ci.res),
-      ready: ci.ready>=0 ? /^(y|yes|true|1|✓)$/i.test(cell(r,ci.ready)) : false,
-      done: ci.done>=0 ? /^(y|yes|true|1|✓)$/i.test(cell(r,ci.done)) : false,
+      status: (()=>{ const s=cell(r,ci.status).toLowerCase().replace(/[\s_]+/g,'-'); return (s==='ready'||s==='in-progress'||s==='done')?s:''; })(),
       notes: cell(r,ci.notes)
     });
   });
@@ -2136,7 +2135,7 @@ window.addEventListener('storage', e=>{
   }catch(err){}
 });
 
-const APP_VERSION='v11 (2026-07-01)';
+const APP_VERSION='v12 (2026-07-01)';
 (function init(){
   const vEl=document.getElementById('stVersion'); if(vEl) vEl.textContent=APP_VERSION;
   console.log('Project Planner build', APP_VERSION);
