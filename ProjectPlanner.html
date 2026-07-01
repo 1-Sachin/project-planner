@@ -310,6 +310,7 @@
   <button class="tb" id="btnExport" title="Save project to file (.json)">Save</button>
   <button class="tb" id="btnCsv" title="Export the task list to a re-importable CSV (edit dates etc. in a spreadsheet or with AI, then re-import)">⭳ Export CSV</button>
   <button class="tb" id="btnCsvImport" title="Import a task list from CSV (replaces the current plan)">⭱ Import CSV</button>
+  <button class="tb" id="btnJiraOut" title="Export a CSV keyed by Jira Issue Key to update tickets (via Rovo, the CSV importer, or an API script)">→ Jira update</button>
   <button class="tb" id="btnPrint" title="Print / PDF">Print</button>
   <button class="tb" id="btnSync" title="Cloud sync across devices">☁ Sync</button>
   <input type="file" id="fileInput" accept=".json,application/json" style="display:none" />
@@ -1770,6 +1771,30 @@ document.getElementById('csvInput').addEventListener('change',e=>{
   rd.onload=()=>{ try{ importPlannerCsv(rd.result, f.name); }catch(err){ console.error(err); toast('Could not read CSV'); } };
   rd.readAsText(f); e.target.value='';
 });
+
+// Pull the Jira key back out of the task name (e.g. "ODAG-622 Do the thing").
+function jiraKeyOf(name){ const m=String(name||'').match(/^([A-Z][A-Z0-9]+-\d+)\b/); return m?m[1]:''; }
+function jiraSummaryOf(name){ return String(name||'').replace(/^[A-Z][A-Z0-9]+-\d+\s+/, ''); }
+// Export a CSV keyed by Issue Key for updating Jira (Rovo / CSV importer / API script).
+function exportJiraUpdate(){
+  const statusLabel={ready:'Ready','in-progress':'In progress',done:'Done'};
+  const rows=[['Issue Key','Summary','Start date','Due date','Status','Blocked by','Notes']];
+  let skipped=0;
+  state.tasks.forEach((t)=>{
+    const key=jiraKeyOf(t.name);
+    if(!key){ skipped++; return; }
+    const blockedBy=(t.preds||[]).map(p=>{ const pi=state.tasks.findIndex(x=>x.id===p.id); return pi>=0?jiraKeyOf(state.tasks[pi].name):''; }).filter(Boolean).join(', ');
+    rows.push([ key, jiraSummaryOf(t.name), t.start?fmtISO(t.start):'', t.finish?fmtISO(t.finish):'', statusLabel[t.status]||'', blockedBy, t.notes||'' ]);
+  });
+  if(rows.length===1){ toast('No Jira issue keys found in task names'); return; }
+  const esc=c=>{ const s=String(c); return /[",\r\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
+  const csv=rows.map(r=>r.map(esc).join(',')).join('\r\n')+'\r\n';
+  const blob=new Blob([csv],{type:'text/csv'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download=(state.name||'project').replace(/[^\w\-]+/g,'_')+'_jira_update.csv'; a.click();
+  toast(`Jira update CSV: ${rows.length-1} issues`+(skipped?`, ${skipped} rows without a key skipped`:''));
+}
+document.getElementById('btnJiraOut').onclick=exportJiraUpdate;
 document.getElementById('fileInput').addEventListener('change',e=>{
   const f=e.target.files[0]; if(!f) return;
   const rd=new FileReader();
@@ -2135,7 +2160,7 @@ window.addEventListener('storage', e=>{
   }catch(err){}
 });
 
-const APP_VERSION='v12 (2026-07-01)';
+const APP_VERSION='v13 (2026-07-01)';
 (function init(){
   const vEl=document.getElementById('stVersion'); if(vEl) vEl.textContent=APP_VERSION;
   console.log('Project Planner build', APP_VERSION);
