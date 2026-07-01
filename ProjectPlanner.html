@@ -1196,6 +1196,14 @@ gridBody.addEventListener('mousedown', e=>{
   }
 });
 gridBody.addEventListener('dblclick', e=>{
+  const td=e.target.closest('td');
+  // Double-clicking an editable cell (e.g. Notes) edits it in place — no Edit pane.
+  if(td && td.classList.contains('editable') && !e.target.closest('.twisty')){
+    const idx=+td.dataset.idx;
+    if(!editing || editing.idx!==idx || editing.col!==td.dataset.col) startEdit(td, idx, td.dataset.col);
+    return;
+  }
+  // Double-clicking the row-number column opens the full Edit pane.
   const tr=e.target.closest('tr'); if(!tr) return;
   openDetail(+tr.dataset.idx);
 });
@@ -2062,7 +2070,7 @@ window.addEventListener('storage', e=>{
   }catch(err){}
 });
 
-const APP_VERSION='v7 (2026-07-01)';
+const APP_VERSION='v8 (2026-07-01)';
 (function init(){
   const vEl=document.getElementById('stVersion'); if(vEl) vEl.textContent=APP_VERSION;
   console.log('Project Planner build', APP_VERSION);
