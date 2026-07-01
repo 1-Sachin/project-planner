@@ -643,6 +643,7 @@ function persist(){
     if(workspace.currentId){
       workspace.byId[workspace.currentId]=serialize();
       workspace.updatedAt=nowMs();      // local change marker for last-write-wins sync
+      workspace.dirty=true;             // local edits not yet confirmed pushed -> protect from pull clobber
       saveWorkspace();
       schedulePush();                    // no-op unless cloud sync is enabled
     }
@@ -703,6 +704,7 @@ async function cloudPush(){
     const r=await fetch('/api/workspace?id='+SYNC_ID,{method:'PUT',headers:authHeaders(),
       body:JSON.stringify({workspace, updatedAt: workspace.updatedAt||nowMs()})});
     if(r.status===401){ setCloud('auth error','#fee2e2'); return; }
+    if(r.ok){ workspace.dirty=false; saveWorkspace(); }   // local changes confirmed in cloud
     setCloud(r.ok?'synced':'error', r.ok?'#d1fae5':'#fee2e2');
   }catch(e){ setCloud('offline','#fde68a'); }
 }
@@ -714,6 +716,10 @@ function schedulePush(){
 async function cloudPull(){
   const c=syncCfg(); if(!c.enabled) return {status:'off'};
   if(!syncAvailable()) return {status:'local-only'};
+  if(editing) return {status:'busy'};                       // never replace state mid-edit
+  // Protect unsynced local work: if we have local changes that haven't been
+  // confirmed in the cloud, keep local and push it up instead of pulling.
+  if(workspace.dirty){ schedulePush(); return {status:'kept-local'}; }
   try{
     const r=await fetch('/api/workspace?id='+SYNC_ID,{headers:authHeaders()});
     if(r.status===401) return {status:'unauthorized'};
@@ -723,6 +729,7 @@ async function cloudPull(){
     if(remote && remote.workspace && remote.workspace.order && remote.workspace.order.length){
       if((remote.updatedAt||0) > (workspace.updatedAt||0)){
         workspace=remote.workspace; workspace.updatedAt=remote.updatedAt;
+        workspace.dirty=false;                              // adopted remote -> local matches cloud
         if(!workspace.currentId || !workspace.byId[workspace.currentId]) workspace.currentId=workspace.order[0];
         saveWorkspace();
         loadFrom(workspace.byId[workspace.currentId]||newProjectData('TrueSight'));
@@ -2022,9 +2029,14 @@ function selectVisible(dir){
   renderHead(); render();
   if(state.tasks.length) scrollToToday();
   reflectCloudStatus();
-  // If sync is enabled, pull the latest from the cloud after first paint.
+  // After first paint: if we have unsynced local changes, upload them; otherwise
+  // check the cloud for updates from another device. Never clobber local edits.
   if(syncCfg().enabled && syncAvailable()){
-    setTimeout(async()=>{ const r=await cloudPull(); if(r.status==='pulled'){ scrollToToday(); toast('Pulled latest from cloud'); } reflectCloudStatus(); }, 200);
+    setTimeout(async()=>{
+      if(workspace.dirty){ await cloudPush(); }
+      else { const r=await cloudPull(); if(r.status==='pulled'){ scrollToToday(); toast('Pulled latest from cloud'); } }
+      reflectCloudStatus();
+    }, 200);
   }
 })();
 </script>
