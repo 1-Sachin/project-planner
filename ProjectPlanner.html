@@ -788,6 +788,9 @@ document.getElementById('syncNow').onclick=async()=>{
 };
 function scheduleSave(){
   setSaved(false);
+  // Mark dirty immediately (not only in the debounced persist) so a pull can
+  // never see a "clean" state in the gap right after an edit and clobber it.
+  if(workspace && workspace.currentId){ workspace.dirty=true; workspace.updatedAt=nowMs(); }
   clearTimeout(saveTimer);
   saveTimer=setTimeout(persist,400);
 }
@@ -2022,6 +2025,22 @@ function selectVisible(dir){
 }
 
 // ---------- Init ----------
+// Keep multiple tabs of the same browser consistent: when another tab saves the
+// workspace, adopt it here — unless we're mid-edit or holding our own unsynced changes.
+window.addEventListener('storage', e=>{
+  if(e.key!==WS_KEY || !e.newValue) return;
+  if(editing || (workspace && workspace.dirty)) return;
+  try{
+    const incoming=JSON.parse(e.newValue);
+    if(incoming && incoming.order && (incoming.updatedAt||0) > (workspace.updatedAt||0)){
+      workspace=incoming;
+      if(!workspace.currentId || !workspace.byId[workspace.currentId]) workspace.currentId=workspace.order[0];
+      loadFrom(workspace.byId[workspace.currentId]||newProjectData('TrueSight'));
+      refreshProjectDropdown(); renderHead(); render();
+    }
+  }catch(err){}
+});
+
 (function init(){
   loadWorkspace();
   loadFrom(workspace.byId[workspace.currentId] || newProjectData('TrueSight'));
