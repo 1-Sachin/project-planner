@@ -34,6 +34,47 @@
   }
   body { display: flex; flex-direction: column; }
 
+  /* ---------- Top nav (view switcher) ---------- */
+  .topnav { display: flex; align-items: center; gap: 18px; padding: 6px 14px; background: #1f2430; color: #fff; flex: 0 0 auto; }
+  .topnav .brand { font-weight: 700; display: flex; align-items: center; gap: 7px; font-size: 14px; }
+  .topnav .brand svg { width: 16px; height: 16px; }
+  .nav-tabs { display: flex; gap: 4px; }
+  .nav-tab { background: transparent; border: 1px solid transparent; color: #c7ccd4; padding: 6px 15px; border-radius: 6px; cursor: pointer; font-size: 13px; font-family: inherit; }
+  .nav-tab:hover { background: rgba(255,255,255,.08); color: #fff; }
+  .nav-tab.active { background: #fff; color: #1f2430; font-weight: 600; }
+  #planView, #raidView { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+  /* ---------- RAID log ---------- */
+  .raid-bar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--border-strong); flex-wrap: wrap; }
+  .raid-filters { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .raid-filters .rf { border: none; border-left: 1px solid var(--border); background: #fff; padding: 6px 13px; cursor: pointer; font-size: 12.5px; font-family: inherit; color: var(--text); }
+  .raid-filters .rf:first-child { border-left: none; }
+  .raid-filters .rf:hover { background: var(--row-hover); }
+  .raid-filters .rf.active { background: var(--accent); color: #fff; }
+  .raid-search { padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; font-family: inherit; min-width: 220px; }
+  .raid-wrap { flex: 1; overflow: auto; background: var(--panel); }
+  .raid-table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  .raid-table th { position: sticky; top: 0; background: var(--header-bg); border-bottom: 1px solid var(--border-strong); padding: 8px; text-align: left; font-weight: 600; color: #374151; z-index: 2; white-space: nowrap; }
+  .raid-table td { border-bottom: 1px solid var(--grid-line); padding: 4px 6px; vertical-align: top; }
+  .raid-table tr:hover td { background: var(--row-hover); }
+  .raid-table input, .raid-table select, .raid-table textarea { width: 100%; border: 1px solid transparent; background: transparent; font-family: inherit; font-size: 12.5px; padding: 4px 5px; border-radius: 4px; color: var(--text); }
+  .raid-table input:hover, .raid-table select:hover, .raid-table textarea:hover { border-color: var(--border); background: #fff; }
+  .raid-table input:focus, .raid-table select:focus, .raid-table textarea:focus { border-color: var(--accent); background: #fff; outline: none; }
+  .raid-table textarea { resize: vertical; min-height: 26px; line-height: 1.35; }
+  .raid-id { font-weight: 700; color: var(--muted); font-size: 11.5px; padding-top: 9px !important; white-space: nowrap; }
+  .raid-table td.center { text-align: center; }
+  .sev { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 11px; font-weight: 700; }
+  .sev.high { background: #fecaca; color: #991b1b; }
+  .sev.med { background: #fde68a; color: #92400e; }
+  .sev.low { background: #bbf7d0; color: #166534; }
+  .raid-del { border: none; background: transparent; color: #b91c1c; cursor: pointer; font-size: 15px; opacity: .45; padding: 4px; }
+  .raid-del:hover { opacity: 1; }
+  .raid-empty { padding: 44px; text-align: center; color: var(--muted); line-height: 1.6; }
+  tr.raid-row.t-risk td:first-child { box-shadow: inset 3px 0 0 #dc2626; }
+  tr.raid-row.t-assumption td:first-child { box-shadow: inset 3px 0 0 #2563eb; }
+  tr.raid-row.t-issue td:first-child { box-shadow: inset 3px 0 0 #ea580c; }
+  tr.raid-row.t-dependency td:first-child { box-shadow: inset 3px 0 0 #16a34a; }
+
   /* ---------- Toolbar ---------- */
   .toolbar {
     display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
@@ -272,6 +313,15 @@
 </head>
 <body>
 
+<div class="topnav">
+  <div class="brand"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></svg> Planner</div>
+  <div class="nav-tabs">
+    <button class="nav-tab" data-view="plan">📋 Project Plan</button>
+    <button class="nav-tab" data-view="raid">⚠ RAID Log</button>
+  </div>
+</div>
+
+<div id="planView">
 <div class="toolbar">
   <div class="title">
     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></svg>
@@ -347,6 +397,37 @@
   <span class="pill" id="stCloud" title="Cloud sync status">Cloud: off</span>
   <span class="pill" id="stSaved">Saved</span>
   <span class="pill" id="stVersion" title="Build version" style="background:#e0e7ff"></span>
+</div>
+</div><!-- /planView -->
+
+<!-- RAID Log view -->
+<div id="raidView" style="display:none">
+  <div class="raid-bar">
+    <div class="raid-filters" id="raidFilters"></div>
+    <input id="raidSearch" class="raid-search" placeholder="Search RAID items…" />
+    <div style="flex:1"></div>
+    <button class="tb primary" id="raidAdd">+ Add item</button>
+  </div>
+  <div class="raid-wrap">
+    <table class="raid-table" id="raidTable">
+      <thead><tr>
+        <th style="width:52px">ID</th>
+        <th style="width:118px">Type</th>
+        <th>Title / Description</th>
+        <th style="width:110px">Owner</th>
+        <th style="width:92px">Impact</th>
+        <th style="width:100px">Likelihood</th>
+        <th style="width:78px">Severity</th>
+        <th style="width:120px">Status</th>
+        <th>Mitigation / Action</th>
+        <th style="width:120px">Raised</th>
+        <th style="width:120px">Due / Review</th>
+        <th style="width:34px"></th>
+      </tr></thead>
+      <tbody id="raidBody"></tbody>
+    </table>
+  </div>
+  <div class="raid-empty" id="raidEmpty" style="display:none">No items yet. Click <b>+ Add item</b> to log a Risk, Assumption, Issue or Dependency.</div>
 </div>
 
 <!-- Detail panel -->
@@ -438,7 +519,7 @@ function workdaysBetween(a,b){
 function workdayAfter(d){ let r=addDays(d,1); return nextWorkday(r); }
 
 // ---------- State ----------
-let state = { name:'New Product Plan', projectStart: fmtISO(today()), tasks:[], zoom:'day', colWidths:{} };
+let state = { name:'New Product Plan', projectStart: fmtISO(today()), tasks:[], zoom:'day', colWidths:{}, raid:[] };
 let selectedId = null;
 let editing = null;
 let uidCounter = 1;
@@ -627,7 +708,7 @@ let saveTimer=null;
 
 // workspace = { order:[id...], byId:{id:serializedProject}, currentId }
 let workspace={ order:[], byId:{}, currentId:null };
-function newProjectData(name){ return { name:name||'New Project', projectStart: fmtISO(today()), zoom:'week', colWidths:{}, tasks:[] }; }
+function newProjectData(name){ return { name:name||'New Project', projectStart: fmtISO(today()), zoom:'week', colWidths:{}, tasks:[], raid:[] }; }
 function isDefaultName(n){ return !n || /^(new project|new product plan|untitled|imported plan)\b/i.test(n.trim()); }
 function genPid(){ let n=1; while(workspace.byId['p'+n]) n++; return 'p'+n; }
 function saveWorkspace(){ try{ localStorage.setItem(WS_KEY, JSON.stringify(workspace)); }catch(e){ console.warn('ws save failed',e); } }
@@ -751,7 +832,7 @@ async function cloudPull(){
         if(!workspace.currentId || !workspace.byId[workspace.currentId]) workspace.currentId=workspace.order[0];
         saveWorkspace();
         loadFrom(workspace.byId[workspace.currentId]||newProjectData('TrueSight'));
-        refreshProjectDropdown(); renderHead(); render();
+        refreshProjectDropdown(); renderHead(); render(); renderRaidIfVisible();
         return {status:'pulled'};
       }
       return {status:'up-to-date'};
@@ -815,6 +896,7 @@ function scheduleSave(){
 function serialize(){
   return {
     name: state.name, projectStart: state.projectStart, zoom: state.zoom, colWidths: state.colWidths||{},
+    raid: state.raid||[],
     tasks: state.tasks.map(t=>({
       id:t.id, name:t.name, level:t.level, collapsed:t.collapsed, duration:t.duration,
       milestone:t.milestone, startFixed:t.startFixed, preds:t.preds, percent:t.percent,
@@ -828,10 +910,14 @@ function loadFrom(obj){
   state.projectStart=obj.projectStart||fmtISO(today());
   state.zoom=obj.zoom||'day';
   state.colWidths=obj.colWidths||{};
+  state.raid=Array.isArray(obj.raid)?obj.raid:[];
   state.tasks=obj.tasks.map(t=>newTask(t));
   // restore uid counter
   let max=0; state.tasks.forEach(t=>{ const n=parseInt(String(t.id).replace(/\D/g,''))||0; if(n>max)max=n; });
   uidCounter=max+1;
+  // restore raid id counter
+  let rmax=0; state.raid.forEach(r=>{ const n=parseInt(String(r.id).replace(/\D/g,''))||0; if(n>rmax)rmax=n; });
+  raidSeq=rmax+1;
   selectedId = state.tasks.length? state.tasks[0].id : null;
   return true;
 }
@@ -2155,12 +2241,131 @@ window.addEventListener('storage', e=>{
       workspace=incoming;
       if(!workspace.currentId || !workspace.byId[workspace.currentId]) workspace.currentId=workspace.order[0];
       loadFrom(workspace.byId[workspace.currentId]||newProjectData('TrueSight'));
-      refreshProjectDropdown(); renderHead(); render();
+      refreshProjectDropdown(); renderHead(); render(); renderRaidIfVisible();
     }
   }catch(err){}
 });
 
-const APP_VERSION='v13 (2026-07-01)';
+// ============================================================
+//  RAID Log (Risks, Assumptions, Issues, Dependencies)
+// ============================================================
+const RAID_TYPES=[
+  {key:'risk',label:'Risk'},
+  {key:'assumption',label:'Assumption'},
+  {key:'issue',label:'Issue'},
+  {key:'dependency',label:'Dependency'},
+];
+const RAID_STATUS=['Open','In progress','Mitigating','Resolved','Closed'];
+const LML=['','Low','Medium','High'];
+const RAID_PREFIX={risk:'R',assumption:'A',issue:'I',dependency:'D'};
+let raidFilter='all', raidSearchTerm='', raidSeq=1;
+function newRaid(type){ return { id:'r'+(raidSeq++), type:type||'risk', title:'', owner:'', impact:'', likelihood:'', status:'Open', action:'', raised:fmtISO(today()), due:'', notes:'' }; }
+
+function severity(it){
+  const m={Low:1,Medium:2,High:3};
+  const i=m[it.impact]||0, l=m[it.likelihood]||0;
+  let score;
+  if(i&&l) score=i*l; else if(i) score=i*2; else return null;
+  if(score>=6) return {label:'High',cls:'high'};
+  if(score>=3) return {label:'Med',cls:'med'};
+  return {label:'Low',cls:'low'};
+}
+
+function raidVisible(){ return document.getElementById('raidView').style.display!=='none'; }
+function renderRaidIfVisible(){ if(raidVisible()) renderRaid(); }
+
+function renderRaid(){
+  const items=state.raid||[];
+  // filter tabs with counts
+  const counts={all:items.length}; RAID_TYPES.forEach(t=>counts[t.key]=items.filter(x=>x.type===t.key).length);
+  const plural={risk:'Risks',assumption:'Assumptions',issue:'Issues',dependency:'Dependencies'};
+  const tabs=[{key:'all',label:'All'}].concat(RAID_TYPES.map(t=>({key:t.key,label:plural[t.key]})));
+  const fEl=document.getElementById('raidFilters');
+  fEl.innerHTML=tabs.map(t=>`<button class="rf${raidFilter===t.key?' active':''}" data-f="${t.key}">${t.label} (${counts[t.key]||0})</button>`).join('');
+  fEl.querySelectorAll('.rf').forEach(b=>b.onclick=()=>{ raidFilter=b.dataset.f; renderRaid(); });
+
+  // stable per-type display ids over the full list
+  const num={}, dispId={};
+  items.forEach(it=>{ num[it.type]=(num[it.type]||0)+1; dispId[it.id]=(RAID_PREFIX[it.type]||'X')+'-'+num[it.type]; });
+
+  const term=raidSearchTerm.trim().toLowerCase();
+  const shown=items.filter(it=>(raidFilter==='all'||it.type===raidFilter) &&
+    (!term || (it.title+' '+it.owner+' '+it.action+' '+it.notes).toLowerCase().includes(term)));
+
+  const body=document.getElementById('raidBody'); body.innerHTML='';
+  shown.forEach(it=>body.appendChild(buildRaidRow(it, dispId[it.id])));
+  document.getElementById('raidEmpty').style.display= shown.length?'none':'block';
+  document.getElementById('raidTable').style.display= shown.length?'':'none';
+}
+
+function buildRaidRow(it, id){
+  const tr=document.createElement('tr'); tr.className='raid-row t-'+it.type; tr.dataset.id=it.id;
+  const cell=cls=>{ const d=document.createElement('td'); if(cls)d.className=cls; return d; };
+  const save=()=>scheduleSave();
+
+  // ID
+  const idc=cell('raid-id'); idc.textContent=id; tr.appendChild(idc);
+  // Type
+  const tc=cell(); const tsel=document.createElement('select');
+  tsel.innerHTML=RAID_TYPES.map(t=>`<option value="${t.key}"${it.type===t.key?' selected':''}>${t.label}</option>`).join('');
+  tsel.onchange=()=>{ it.type=tsel.value; save(); renderRaid(); };
+  tc.appendChild(tsel); tr.appendChild(tc);
+  // Title
+  const titlec=cell(); const title=document.createElement('textarea'); title.rows=1; title.value=it.title; title.placeholder='Describe…';
+  title.addEventListener('input',()=>{ it.title=title.value; save(); });
+  titlec.appendChild(title); tr.appendChild(titlec);
+  // Owner
+  const oc=cell(); const owner=document.createElement('input'); owner.value=it.owner;
+  owner.addEventListener('input',()=>{ it.owner=owner.value; save(); });
+  oc.appendChild(owner); tr.appendChild(oc);
+  // Severity cell (defined here, filled by updateSev)
+  const sevc=cell('center');
+  function updateSev(){ const s=severity(it); sevc.innerHTML=s?`<span class="sev ${s.cls}">${s.label}</span>`:''; }
+  const mkLML=(val,set)=>{ const s=document.createElement('select'); s.innerHTML=LML.map(o=>`<option value="${o}"${val===o?' selected':''}>${o||'—'}</option>`).join(''); s.onchange=()=>{ set(s.value); save(); updateSev(); }; return s; };
+  // Impact
+  const ic=cell(); ic.appendChild(mkLML(it.impact,v=>it.impact=v)); tr.appendChild(ic);
+  // Likelihood
+  const lc=cell(); lc.appendChild(mkLML(it.likelihood,v=>it.likelihood=v)); tr.appendChild(lc);
+  // Severity
+  updateSev(); tr.appendChild(sevc);
+  // Status
+  const stc=cell(); const st=document.createElement('select'); st.innerHTML=RAID_STATUS.map(o=>`<option${it.status===o?' selected':''}>${o}</option>`).join('');
+  st.onchange=()=>{ it.status=st.value; save(); }; stc.appendChild(st); tr.appendChild(stc);
+  // Action / mitigation
+  const ac=cell(); const act=document.createElement('textarea'); act.rows=1; act.value=it.action; act.placeholder='Mitigation / response…';
+  act.addEventListener('input',()=>{ it.action=act.value; save(); }); ac.appendChild(act); tr.appendChild(ac);
+  // Raised
+  const rc=cell(); const rd=document.createElement('input'); rd.type='date'; rd.value=it.raised||''; rd.onchange=()=>{ it.raised=rd.value; save(); }; rc.appendChild(rd); tr.appendChild(rc);
+  // Due
+  const dc=cell(); const dd=document.createElement('input'); dd.type='date'; dd.value=it.due||''; dd.onchange=()=>{ it.due=dd.value; save(); }; dc.appendChild(dd); tr.appendChild(dc);
+  // Delete
+  const delc=cell('center'); const del=document.createElement('button'); del.className='raid-del'; del.textContent='✕'; del.title='Delete item';
+  del.onclick=()=>{ if(confirm('Delete this RAID item?')){ state.raid=state.raid.filter(x=>x.id!==it.id); scheduleSave(); renderRaid(); } };
+  delc.appendChild(del); tr.appendChild(delc);
+  return tr;
+}
+
+function addRaid(){
+  const type = raidFilter==='all' ? 'risk' : raidFilter;
+  const it=newRaid(type); (state.raid=state.raid||[]).push(it); scheduleSave(); renderRaid();
+  const el=document.querySelector(`tr.raid-row[data-id="${it.id}"] textarea`); if(el) el.focus();
+}
+
+// ---------- View switching ----------
+function switchView(v){
+  const isRaid = v==='raid';
+  document.getElementById('planView').style.display = isRaid?'none':'flex';
+  document.getElementById('raidView').style.display = isRaid?'flex':'none';
+  document.querySelectorAll('.nav-tab').forEach(b=>b.classList.toggle('active', b.dataset.view===v));
+  if(location.hash!=='#'+v){ try{ location.hash=v; }catch(e){} }
+  if(isRaid) renderRaid();
+}
+document.querySelectorAll('.nav-tab').forEach(b=>b.onclick=()=>switchView(b.dataset.view));
+window.addEventListener('hashchange',()=>switchView(location.hash==='#raid'?'raid':'plan'));
+document.getElementById('raidAdd').onclick=addRaid;
+document.getElementById('raidSearch').addEventListener('input',e=>{ raidSearchTerm=e.target.value; renderRaid(); });
+
+const APP_VERSION='v14 (2026-07-01)';
 (function init(){
   const vEl=document.getElementById('stVersion'); if(vEl) vEl.textContent=APP_VERSION;
   console.log('Project Planner build', APP_VERSION);
@@ -2168,6 +2373,7 @@ const APP_VERSION='v13 (2026-07-01)';
   loadFrom(workspace.byId[workspace.currentId] || newProjectData('TrueSight'));
   refreshProjectDropdown();
   renderHead(); render();
+  switchView(location.hash==='#raid'?'raid':'plan');
   if(state.tasks.length) scrollToToday();
   reflectCloudStatus();
   // After first paint: if we have unsynced local changes, upload them; otherwise
