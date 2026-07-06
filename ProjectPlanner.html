@@ -465,7 +465,7 @@
   <div class="modal" style="width:480px">
     <h3>Cloud Sync<span class="close-x" id="syncClose">×</span></h3>
     <div class="modal-body">
-      <p class="hint" id="syncHint">Sync your projects across devices. Enter the same passphrase on every device — they’ll share one workspace. Last save wins.</p>
+      <p class="hint" id="syncHint">Your passcode is your private key. Use the <b>same passcode on your own devices</b> to sync your plans across them. A <b>different</b> passcode = a separate, private workspace (this is how teammates each keep their own plan). Anyone who knows a passcode can edit that workspace, so keep yours secret and strong.</p>
       <label class="chk"><input type="checkbox" id="syncEnabled"/> Enable cloud sync</label>
       <label style="display:block;font-size:11px;color:var(--muted);margin:12px 0 3px;text-transform:uppercase;letter-spacing:.03em;">Passphrase</label>
       <input id="syncSecret" type="password" placeholder="shared secret" style="width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:5px;font-size:13px;"/>
@@ -782,7 +782,8 @@ function deleteProject(id){
 
 // ---------- Cloud sync (optional; backed by a Vercel serverless function) ----------
 const SYNC_KEY='projectPlanner.sync.v1';
-const SYNC_ID='default';                 // one shared workspace per passphrase
+// The workspace is keyed server-side by a hash of the passcode, so each passcode
+// is its own private workspace. No id is sent in the URL.
 let pushTimer=null;
 function syncCfg(){ try{ return JSON.parse(localStorage.getItem(SYNC_KEY))||{}; }catch(e){ return {}; } }
 function saveSyncCfg(c){ localStorage.setItem(SYNC_KEY, JSON.stringify(c)); }
@@ -798,7 +799,7 @@ async function cloudPush(){
   setCloud('syncing…','#fef3c7');
   const stamp = workspace.updatedAt;               // snapshot: what we're about to upload
   try{
-    const r=await fetch('/api/workspace?id='+SYNC_ID,{method:'PUT',headers:authHeaders(),
+    const r=await fetch('/api/workspace',{method:'PUT',headers:authHeaders(),
       body:JSON.stringify({workspace, updatedAt: stamp||nowMs()})});
     if(r.status===401){ setCloud('auth error','#fee2e2'); return; }
     // Only clear dirty if NO new edit happened while this push was in flight,
@@ -821,7 +822,7 @@ async function cloudPull(){
   // confirmed in the cloud, keep local and push it up instead of pulling.
   if(workspace.dirty){ schedulePush(); return {status:'kept-local'}; }
   try{
-    const r=await fetch('/api/workspace?id='+SYNC_ID,{headers:authHeaders()});
+    const r=await fetch('/api/workspace',{headers:authHeaders()});
     if(r.status===401) return {status:'unauthorized'};
     if(!r.ok) return {status:'error'};
     const j=await r.json();
@@ -850,6 +851,42 @@ async function syncNow(){
   await cloudPush();
   return pull;
 }
+function seededWorkspace(){ const id='p1'; return { order:[id], byId:{[id]:newProjectData('My Plan')}, currentId:id, updatedAt:nowMs(), dirty:true }; }
+// Called when enabling sync or (crucially) when the passcode CHANGES. A different
+// passcode is a different private workspace, so we load that room wholesale
+// instead of timestamp-merging against the previous passcode's data.
+async function syncActivate(){
+  const c=syncCfg();
+  if(!c.enabled){ reflectCloudStatus(); return {status:'off'}; }
+  if(!syncAvailable()) { reflectCloudStatus(); return {status:'local-only'}; }
+  const bound=c.boundPasscode||'';
+  if(bound && bound!==c.secret){
+    // ---- Passcode switch: load the new room fresh ----
+    setCloud('syncing…','#fef3c7');
+    let remote=null, code=0;
+    try{ const r=await fetch('/api/workspace',{headers:authHeaders()}); code=r.status; if(r.ok){ const j=await r.json(); remote=j&&j.data; } }
+    catch(e){ setCloud('offline','#fde68a'); return {status:'offline'}; }
+    if(code===401){ setCloud('auth error','#fee2e2'); return {status:'unauthorized'}; }
+    if(remote && remote.workspace && remote.workspace.order && remote.workspace.order.length){
+      workspace=remote.workspace; workspace.updatedAt=remote.updatedAt; workspace.dirty=false;
+      if(!workspace.currentId || !workspace.byId[workspace.currentId]) workspace.currentId=workspace.order[0];
+    } else {
+      workspace=seededWorkspace();   // brand-new private room
+    }
+    saveSyncCfg(Object.assign({}, c, {boundPasscode:c.secret}));
+    saveWorkspace();
+    loadFrom(workspace.byId[workspace.currentId]||newProjectData('My Plan'));
+    refreshProjectDropdown(); renderHead(); render(); renderRaidIfVisible(); scrollToToday();
+    await cloudPush();
+    reflectCloudStatus();
+    return {status: remote&&remote.workspace? 'switched':'new-room'};
+  }
+  // First time enabling (bind current local data to this passcode), or same passcode.
+  if(!bound) saveSyncCfg(Object.assign({}, c, {boundPasscode:c.secret}));
+  const res=await syncNow();
+  reflectCloudStatus();
+  return res;
+}
 function reflectCloudStatus(){
   const c=syncCfg();
   if(!c.enabled){ setCloud('off'); return; }
@@ -872,22 +909,23 @@ document.getElementById('syncCancel').onclick=()=>document.getElementById('syncM
 document.getElementById('syncSave').onclick=async()=>{
   const enabled=document.getElementById('syncEnabled').checked;
   const secret=document.getElementById('syncSecret').value.trim();
-  if(enabled && !secret){ document.getElementById('syncState').textContent='Enter a passphrase to enable sync.'; return; }
-  saveSyncCfg({enabled, secret});
+  if(enabled && secret.length<6){ document.getElementById('syncState').textContent='Passcode must be at least 6 characters.'; return; }
+  saveSyncCfg(Object.assign({}, syncCfg(), {enabled, secret}));
   reflectCloudStatus();
   if(enabled){
     document.getElementById('syncState').textContent='Syncing…';
-    const res=await syncNow();
+    const res=await syncActivate();
     document.getElementById('syncState').textContent='Sync status: '+res.status;
-    toast('Cloud sync '+(res.status==='unauthorized'?'failed (check passphrase)':'enabled'));
+    toast('Cloud sync '+(res.status==='unauthorized'?'failed (check passcode)':'enabled'));
   } else { toast('Cloud sync disabled'); }
 };
 document.getElementById('syncNow').onclick=async()=>{
   const secret=document.getElementById('syncSecret').value.trim();
-  saveSyncCfg({enabled:true, secret});
+  if(secret.length<6){ document.getElementById('syncState').textContent='Passcode must be at least 6 characters.'; return; }
+  saveSyncCfg(Object.assign({}, syncCfg(), {enabled:true, secret}));
   reflectCloudStatus();
   document.getElementById('syncState').textContent='Syncing…';
-  const res=await syncNow();
+  const res=await syncActivate();
   document.getElementById('syncState').textContent='Sync status: '+res.status;
 };
 function scheduleSave(){
@@ -2370,7 +2408,7 @@ window.addEventListener('hashchange',()=>switchView(location.hash==='#raid'?'rai
 document.getElementById('raidAdd').onclick=addRaid;
 document.getElementById('raidSearch').addEventListener('input',e=>{ raidSearchTerm=e.target.value; renderRaid(); });
 
-const APP_VERSION='v15 (2026-07-01)';
+const APP_VERSION='v16 (2026-07-01)';
 (function init(){
   const vEl=document.getElementById('stVersion'); if(vEl) vEl.textContent=APP_VERSION;
   console.log('Project Planner build', APP_VERSION);

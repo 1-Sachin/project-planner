@@ -1,12 +1,17 @@
-// Vercel serverless function: stores/loads the planner workspace as a JSON blob.
+// Vercel serverless function: stores/loads a planner workspace as a JSON blob.
 //
 // Storage: Vercel KV (Upstash Redis). When you add a KV store to the project in
 // the Vercel dashboard, Vercel injects KV_REST_API_URL and KV_REST_API_TOKEN.
 // We call the Upstash REST API directly (no npm dependency needed).
 //
-// Auth: set a SYNC_SECRET environment variable in Vercel. The client must send
-// `Authorization: Bearer <SYNC_SECRET>`. Without the secret set, the endpoint
-// refuses to run (so your data is never wide open by accident).
+// Access model: PER-PASSCODE PRIVATE WORKSPACES.
+// The client sends `Authorization: Bearer <passcode>`. The storage key is
+// derived from a hash of that passcode, so each distinct passcode is its own
+// isolated workspace — you can only read/write a workspace if you know its
+// passcode. There is no shared master secret; the passcode IS the credential.
+// (SYNC_SECRET is no longer used.)
+
+import { createHash } from 'crypto';
 
 async function kv(command) {
   const base = process.env.KV_REST_API_URL;
@@ -21,20 +26,23 @@ async function kv(command) {
   return res.json(); // { result: ... }
 }
 
+function keyForPasscode(passcode) {
+  const hex = createHash('sha256').update('planner-passcode:' + passcode).digest('hex');
+  return 'planner:ws:' + hex;
+}
+
 export default async function handler(req, res) {
-  // CORS (harmless for same-origin; lets you test from elsewhere if needed)
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, PUT, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.status(204).end();
 
-  const secret = process.env.SYNC_SECRET;
-  if (!secret) return res.status(500).json({ error: 'SYNC_SECRET not configured on the server' });
   const auth = req.headers['authorization'] || '';
-  if (auth !== 'Bearer ' + secret) return res.status(401).json({ error: 'unauthorized' });
+  const passcode = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+  // A passcode is the only thing protecting a workspace, so require a decent length.
+  if (passcode.length < 6) return res.status(401).json({ error: 'passcode required (min 6 characters)' });
 
-  const id = (req.query && req.query.id) ? String(req.query.id) : 'default';
-  const key = 'planner:workspace:' + id.replace(/[^\w-]/g, '');
+  const key = keyForPasscode(passcode);
 
   try {
     if (req.method === 'GET') {
