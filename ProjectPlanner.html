@@ -612,22 +612,27 @@ function schedule(){
     if(t.start) return;
     if(stack.has(t.id)) return; // cycle guard
     stack.add(t.id);
-    let earliest = pStart;
-    if(t.startFixed){ earliest = nextWorkday(parseDate(t.startFixed)); }
-    // predecessor constraints (finish-to-start with lag)
+    // A task with predecessors is DEPENDENCY-DRIVEN: its start follows the latest
+    // predecessor finish (+lag), so it auto-updates when a predecessor moves — even
+    // if the user had previously typed a date on it. Only tasks WITHOUT predecessors
+    // use their pinned start date (or the project start).
+    let depDriven = null;
     (t.preds||[]).forEach(p=>{
       const pi = byId[p.id];
       if(pi==null) return;
-      // ensure predecessor resolved first
-      if(isLeaf(pi)) resolveLeaf(pi, stack);
+      if(isLeaf(pi)) resolveLeaf(pi, stack);   // ensure predecessor resolved first
       else resolveSummary(pi, stack);
       const pf = tasks[pi].finish;
       if(pf){
         let cand = workdayAfter(pf);
         if(p.lag) cand = addWorkdays(cand, p.lag+1); // lag in working days
-        if(cand>earliest) earliest=cand;
+        if(depDriven==null || cand>depDriven) depDriven=cand;
       }
     });
+    let earliest;
+    if(depDriven!=null) earliest = depDriven;                          // dependency wins
+    else if(t.startFixed) earliest = nextWorkday(parseDate(t.startFixed)); // else pinned date
+    else earliest = pStart;                                            // else project start
     t.start = nextWorkday(earliest);
     t.finish = t.milestone ? t.start : addWorkdays(t.start, t.duration);
     stack.delete(t.id);
@@ -2365,7 +2370,7 @@ window.addEventListener('hashchange',()=>switchView(location.hash==='#raid'?'rai
 document.getElementById('raidAdd').onclick=addRaid;
 document.getElementById('raidSearch').addEventListener('input',e=>{ raidSearchTerm=e.target.value; renderRaid(); });
 
-const APP_VERSION='v14 (2026-07-01)';
+const APP_VERSION='v15 (2026-07-01)';
 (function init(){
   const vEl=document.getElementById('stVersion'); if(vEl) vEl.textContent=APP_VERSION;
   console.log('Project Planner build', APP_VERSION);
