@@ -34,6 +34,19 @@
   }
   body { display: flex; flex-direction: column; }
 
+  /* ---------- Passcode gate ---------- */
+  #gate { position: fixed; inset: 0; z-index: 200; background: #1f2430; display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .gate-card { background: #fff; border-radius: 12px; padding: 30px 28px; width: 380px; max-width: 94vw; box-shadow: 0 20px 60px rgba(0,0,0,.35); text-align: center; }
+  .gate-brand { font-weight: 700; font-size: 18px; color: var(--accent); display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .gate-brand svg { width: 20px; height: 20px; }
+  .gate-sub { color: var(--text); font-size: 14px; margin: 14px 0 16px; }
+  #gatePass { width: 100%; padding: 11px 12px; border: 1px solid var(--border-strong); border-radius: 8px; font-size: 15px; font-family: inherit; text-align: center; }
+  #gatePass:focus { outline: none; border-color: var(--accent); }
+  #gateBtn { width: 100%; margin-top: 12px; padding: 11px; border: none; border-radius: 8px; background: var(--accent); color: #fff; font-size: 15px; font-weight: 600; cursor: pointer; font-family: inherit; }
+  #gateBtn:hover { background: #1b5e3a; }
+  .gate-err { color: #b91c1c; font-size: 13px; min-height: 18px; margin: 10px 0 0; }
+  .gate-note { color: var(--muted); font-size: 11.5px; line-height: 1.6; margin: 8px 0 0; }
+
   /* ---------- Top nav (view switcher) ---------- */
   .topnav { display: flex; align-items: center; gap: 18px; padding: 6px 14px; background: #1f2430; color: #fff; flex: 0 0 auto; }
   .topnav .brand { font-weight: 700; display: flex; align-items: center; gap: 7px; font-size: 14px; }
@@ -313,6 +326,17 @@
 </head>
 <body>
 
+<div id="gate">
+  <div class="gate-card">
+    <div class="gate-brand"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></svg> Project Planner</div>
+    <p class="gate-sub">Enter your passcode to open your plans.</p>
+    <input id="gatePass" type="password" placeholder="Passcode" autocomplete="off" />
+    <button id="gateBtn">Open</button>
+    <p class="gate-err" id="gateErr"></p>
+    <p class="gate-note">Your passcode is your private space — it loads only the projects &amp; RAID saved under it. A different passcode opens a separate, empty workspace. Minimum 6 characters. Keep it safe: there is no reset.</p>
+  </div>
+</div>
+
 <div class="topnav">
   <div class="brand"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></svg> Planner</div>
   <div class="nav-tabs">
@@ -362,7 +386,7 @@
   <button class="tb" id="btnCsvImport" title="Import a task list from CSV (replaces the current plan)">⭱ Import CSV</button>
   <button class="tb" id="btnJiraOut" title="Export a CSV keyed by Jira Issue Key to update tickets (via Rovo, the CSV importer, or an API script)">→ Jira update</button>
   <button class="tb" id="btnPrint" title="Print / PDF">Print</button>
-  <button class="tb" id="btnSync" title="Cloud sync across devices">☁ Sync</button>
+  <button class="tb" id="btnSync" title="Lock &amp; switch passcode (reloads)">🔒 Lock</button>
   <input type="file" id="fileInput" accept=".json,application/json" style="display:none" />
   <input type="file" id="jiraInput" accept=".csv,text/csv" style="display:none" />
   <input type="file" id="csvInput" accept=".csv,text/csv" style="display:none" />
@@ -456,25 +480,6 @@
     <div class="modal-foot">
       <button class="tb" id="jiraCancel">Cancel</button>
       <button class="tb primary" id="jiraDoImport">Import</button>
-    </div>
-  </div>
-</div>
-
-<!-- Cloud sync modal -->
-<div class="modal-overlay" id="syncModal">
-  <div class="modal" style="width:480px">
-    <h3>Cloud Sync<span class="close-x" id="syncClose">×</span></h3>
-    <div class="modal-body">
-      <p class="hint" id="syncHint">Your passcode is your private key. Use the <b>same passcode on your own devices</b> to sync your plans across them. A <b>different</b> passcode = a separate, private workspace (this is how teammates each keep their own plan). Anyone who knows a passcode can edit that workspace, so keep yours secret and strong.</p>
-      <label class="chk"><input type="checkbox" id="syncEnabled"/> Enable cloud sync</label>
-      <label style="display:block;font-size:11px;color:var(--muted);margin:12px 0 3px;text-transform:uppercase;letter-spacing:.03em;">Passphrase</label>
-      <input id="syncSecret" type="password" placeholder="shared secret" style="width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:5px;font-size:13px;"/>
-      <p class="hint" id="syncState" style="margin-top:12px;"></p>
-    </div>
-    <div class="modal-foot">
-      <button class="tb" id="syncCancel">Close</button>
-      <button class="tb" id="syncNow" title="Pull latest, then push your changes">Sync now</button>
-      <button class="tb primary" id="syncSave">Save &amp; Sync</button>
     </div>
   </div>
 </div>
@@ -706,31 +711,28 @@ function computeCritical(){
   tasks.forEach((t,i)=>{ if(isSummary(i)){ t.critical = childrenOf(i).some(ci=>tasks[ci].critical && !isSummary(ci)); } });
 }
 
-// ---------- Persistence ----------
-const LS_KEY='projectPlanner.v1';            // legacy single-project key (migrated on first load)
-const WS_KEY='projectPlanner.workspace.v1';  // multi-project workspace
+// ---------- Persistence (per-passcode profiles) ----------
 let saveTimer=null;
+let passcode=null;   // in-memory only; never persisted, so a reload re-prompts the gate
 
-// workspace = { order:[id...], byId:{id:serializedProject}, currentId }
+// Non-cryptographic hash, only used to namespace this passcode's LOCAL cache key.
+function shortHash(s){ let h=5381; for(let i=0;i<s.length;i++){ h=((h<<5)+h+s.charCodeAt(i))>>>0; } return h.toString(36); }
+function wsLocalKey(){ return 'projectPlanner.ws.'+shortHash(passcode||''); }
+
+// workspace = { order:[id...], byId:{id:serializedProject}, currentId, updatedAt, dirty }
 let workspace={ order:[], byId:{}, currentId:null };
-function newProjectData(name){ return { name:name||'New Project', projectStart: fmtISO(today()), zoom:'week', colWidths:{}, tasks:[], raid:[] }; }
+function newProjectData(name){ return { name:name||'Untitled', projectStart: fmtISO(today()), zoom:'week', colWidths:{}, tasks:[], raid:[] }; }
 function isDefaultName(n){ return !n || /^(new project|new product plan|untitled|imported plan)\b/i.test(n.trim()); }
 function genPid(){ let n=1; while(workspace.byId['p'+n]) n++; return 'p'+n; }
-function saveWorkspace(){ try{ localStorage.setItem(WS_KEY, JSON.stringify(workspace)); }catch(e){ console.warn('ws save failed',e); } }
+function blankWorkspace(){ const id='p1'; return { order:[id], byId:{[id]:newProjectData('Untitled')}, currentId:id, updatedAt:0, dirty:false }; }
+function saveWorkspace(){ if(!passcode) return; try{ localStorage.setItem(wsLocalKey(), JSON.stringify(workspace)); }catch(e){ console.warn('ws save failed',e); } }
 
+// Load this passcode's cached workspace (or a blank one). Cloud pull happens after.
 function loadWorkspace(){
-  let raw=localStorage.getItem(WS_KEY);
-  if(raw){ try{ workspace=JSON.parse(raw); }catch(e){ workspace={order:[],byId:{},currentId:null}; } }
-  if(!workspace.order || !workspace.order.length){
-    // First run: migrate any legacy single project, then seed the second project.
-    let legacy=null; const old=localStorage.getItem(LS_KEY);
-    if(old){ try{ legacy=JSON.parse(old); }catch(e){} }
-    const id1=genPid();
-    workspace={ order:[id1], byId:{ [id1]: legacy||newProjectData('TrueSight') }, currentId:id1 };
-    if(!legacy && workspace.byId[id1]) workspace.byId[id1].name=workspace.byId[id1].name||'TrueSight';
-    const id2=genPid(); workspace.byId[id2]=newProjectData('APP-5001 Ab Initio'); workspace.order.push(id2);
-    saveWorkspace();
-  }
+  let raw=null; try{ raw=localStorage.getItem(wsLocalKey()); }catch(e){}
+  if(raw){ try{ workspace=JSON.parse(raw); }catch(e){ workspace=blankWorkspace(); } }
+  else { workspace=blankWorkspace(); }
+  if(!workspace.order || !workspace.order.length) workspace=blankWorkspace();
   if(!workspace.currentId || !workspace.byId[workspace.currentId]) workspace.currentId=workspace.order[0];
 }
 
@@ -780,64 +782,58 @@ function deleteProject(id){
   toast('Deleted “'+nm+'”');
 }
 
-// ---------- Cloud sync (optional; backed by a Vercel serverless function) ----------
-const SYNC_KEY='projectPlanner.sync.v1';
-// The workspace is keyed server-side by a hash of the passcode, so each passcode
-// is its own private workspace. No id is sent in the URL.
+// ---------- Cloud sync (per-passcode, backed by a Vercel serverless function) ----------
+// The workspace is keyed server-side by a hash of the passcode (Authorization:
+// Bearer <passcode>), so each passcode is its own private workspace.
 let pushTimer=null;
-function syncCfg(){ try{ return JSON.parse(localStorage.getItem(SYNC_KEY))||{}; }catch(e){ return {}; } }
-function saveSyncCfg(c){ localStorage.setItem(SYNC_KEY, JSON.stringify(c)); }
 function syncAvailable(){ return location.protocol==='http:'||location.protocol==='https:'; }
-function authHeaders(){ const c=syncCfg(); return { 'Content-Type':'application/json', 'Authorization':'Bearer '+(c.secret||'') }; }
+function syncOn(){ return !!passcode && syncAvailable(); }
+function authHeaders(){ return { 'Content-Type':'application/json', 'Authorization':'Bearer '+(passcode||'') }; }
 function setCloud(txt, color){
   const el=document.getElementById('stCloud'); if(!el) return;
   el.textContent='Cloud: '+txt;
   el.style.background = color||'#e5e7eb';
 }
+function reflectCloudStatus(){
+  if(!passcode){ setCloud('—'); return; }
+  if(!syncAvailable()){ setCloud('local only','#fde68a'); return; }
+  setCloud('on','#d1fae5');
+}
 async function cloudPush(){
-  const c=syncCfg(); if(!c.enabled || !syncAvailable()) return;
-  setCloud('syncing…','#fef3c7');
+  if(!syncOn()) return;
+  setCloud('saving…','#fef3c7');
   const stamp = workspace.updatedAt;               // snapshot: what we're about to upload
   try{
     const r=await fetch('/api/workspace',{method:'PUT',headers:authHeaders(),
       body:JSON.stringify({workspace, updatedAt: stamp||nowMs()})});
     if(r.status===401){ setCloud('auth error','#fee2e2'); return; }
-    // Only clear dirty if NO new edit happened while this push was in flight,
-    // otherwise we'd falsely mark unsynced edits as saved.
+    // Only clear dirty if NO new edit happened while this push was in flight.
     if(r.ok && workspace.updatedAt===stamp){ workspace.dirty=false; saveWorkspace(); }
-    else if(r.ok){ schedulePush(); }               // edited during push -> push again
+    else if(r.ok){ schedulePush(); }
     setCloud(r.ok?'synced':'error', r.ok?'#d1fae5':'#fee2e2');
   }catch(e){ setCloud('offline','#fde68a'); }
 }
-function schedulePush(){
-  const c=syncCfg(); if(!c.enabled || !syncAvailable()) return;
-  clearTimeout(pushTimer); pushTimer=setTimeout(cloudPush, 1500);
-}
-// Returns {status, ...}. Replaces local workspace if the remote copy is newer.
+function schedulePush(){ if(!syncOn()) return; clearTimeout(pushTimer); pushTimer=setTimeout(cloudPush, 1500); }
+// Pull this passcode's workspace. Replaces local only if the cloud copy is newer
+// and we have no unsynced local edits (so it never clobbers work in progress).
 async function cloudPull(){
-  const c=syncCfg(); if(!c.enabled) return {status:'off'};
-  if(!syncAvailable()) return {status:'local-only'};
-  if(editing) return {status:'busy'};                       // never replace state mid-edit
-  // Protect unsynced local work: if we have local changes that haven't been
-  // confirmed in the cloud, keep local and push it up instead of pulling.
+  if(!syncOn()) return {status:'local-only'};
+  if(editing) return {status:'busy'};
   if(workspace.dirty){ schedulePush(); return {status:'kept-local'}; }
   try{
     const r=await fetch('/api/workspace',{headers:authHeaders()});
     if(r.status===401) return {status:'unauthorized'};
     if(!r.ok) return {status:'error'};
     const j=await r.json();
-    // Re-check AFTER the network round-trip: the user may have started editing
-    // (or made a change) while the request was in flight. If so, keep local.
     if(editing) return {status:'busy'};
     if(workspace.dirty){ schedulePush(); return {status:'kept-local'}; }
     const remote=j&&j.data;
     if(remote && remote.workspace && remote.workspace.order && remote.workspace.order.length){
       if((remote.updatedAt||0) > (workspace.updatedAt||0)){
-        workspace=remote.workspace; workspace.updatedAt=remote.updatedAt;
-        workspace.dirty=false;                              // adopted remote -> local matches cloud
+        workspace=remote.workspace; workspace.updatedAt=remote.updatedAt; workspace.dirty=false;
         if(!workspace.currentId || !workspace.byId[workspace.currentId]) workspace.currentId=workspace.order[0];
         saveWorkspace();
-        loadFrom(workspace.byId[workspace.currentId]||newProjectData('TrueSight'));
+        loadFrom(workspace.byId[workspace.currentId]||newProjectData('Untitled'));
         refreshProjectDropdown(); renderHead(); render(); renderRaidIfVisible();
         return {status:'pulled'};
       }
@@ -846,88 +842,32 @@ async function cloudPull(){
     return {status:'empty'};
   }catch(e){ return {status:'offline'}; }
 }
-async function syncNow(){
-  const pull=await cloudPull();
-  await cloudPush();
-  return pull;
-}
-function seededWorkspace(){ const id='p1'; return { order:[id], byId:{[id]:newProjectData('My Plan')}, currentId:id, updatedAt:nowMs(), dirty:true }; }
-// Called when enabling sync or (crucially) when the passcode CHANGES. A different
-// passcode is a different private workspace, so we load that room wholesale
-// instead of timestamp-merging against the previous passcode's data.
-async function syncActivate(){
-  const c=syncCfg();
-  if(!c.enabled){ reflectCloudStatus(); return {status:'off'}; }
-  if(!syncAvailable()) { reflectCloudStatus(); return {status:'local-only'}; }
-  const bound=c.boundPasscode||'';
-  if(bound && bound!==c.secret){
-    // ---- Passcode switch: load the new room fresh ----
-    setCloud('syncing…','#fef3c7');
-    let remote=null, code=0;
-    try{ const r=await fetch('/api/workspace',{headers:authHeaders()}); code=r.status; if(r.ok){ const j=await r.json(); remote=j&&j.data; } }
-    catch(e){ setCloud('offline','#fde68a'); return {status:'offline'}; }
-    if(code===401){ setCloud('auth error','#fee2e2'); return {status:'unauthorized'}; }
-    if(remote && remote.workspace && remote.workspace.order && remote.workspace.order.length){
-      workspace=remote.workspace; workspace.updatedAt=remote.updatedAt; workspace.dirty=false;
-      if(!workspace.currentId || !workspace.byId[workspace.currentId]) workspace.currentId=workspace.order[0];
-    } else {
-      workspace=seededWorkspace();   // brand-new private room
-    }
-    saveSyncCfg(Object.assign({}, c, {boundPasscode:c.secret}));
-    saveWorkspace();
-    loadFrom(workspace.byId[workspace.currentId]||newProjectData('My Plan'));
-    refreshProjectDropdown(); renderHead(); render(); renderRaidIfVisible(); scrollToToday();
-    await cloudPush();
-    reflectCloudStatus();
-    return {status: remote&&remote.workspace? 'switched':'new-room'};
-  }
-  // First time enabling (bind current local data to this passcode), or same passcode.
-  if(!bound) saveSyncCfg(Object.assign({}, c, {boundPasscode:c.secret}));
-  const res=await syncNow();
-  reflectCloudStatus();
-  return res;
-}
-function reflectCloudStatus(){
-  const c=syncCfg();
-  if(!c.enabled){ setCloud('off'); return; }
-  if(!syncAvailable()){ setCloud('local only','#fde68a'); return; }
-  setCloud('on','#d1fae5');
-}
 
-// Sync modal wiring
-function openSyncModal(){
-  const c=syncCfg();
-  document.getElementById('syncEnabled').checked=!!c.enabled;
-  document.getElementById('syncSecret').value=c.secret||'';
-  const st=document.getElementById('syncState');
-  st.textContent = syncAvailable()? '' : 'Note: cloud sync only works on the deployed (https) URL, not when opening the file locally.';
-  document.getElementById('syncModal').classList.add('open');
+// ---------- Passcode gate ----------
+function showGateError(msg){ const e=document.getElementById('gateErr'); if(e) e.textContent=msg||''; }
+async function enterApp(pc){
+  pc=(pc||'').trim();
+  if(pc.length<6){ showGateError('Passcode must be at least 6 characters.'); return; }
+  passcode=pc;
+  loadWorkspace();                                   // this passcode's local cache (or blank)
+  loadFrom(workspace.byId[workspace.currentId] || newProjectData('Untitled'));
+  refreshProjectDropdown(); renderHead(); render();
+  switchView(location.hash==='#raid'?'raid':'plan');
+  reflectCloudStatus();
+  document.getElementById('gate').style.display='none';
+  document.body.classList.add('authed');
+  if(state.tasks.length) scrollToToday();
+  // Freshen from this passcode's cloud copy.
+  if(syncAvailable()){
+    const res=await cloudPull();
+    if(res.status==='pulled') scrollToToday();
+    reflectCloudStatus();
+  }
 }
-document.getElementById('btnSync').onclick=openSyncModal;
-document.getElementById('syncClose').onclick=()=>document.getElementById('syncModal').classList.remove('open');
-document.getElementById('syncCancel').onclick=()=>document.getElementById('syncModal').classList.remove('open');
-document.getElementById('syncSave').onclick=async()=>{
-  const enabled=document.getElementById('syncEnabled').checked;
-  const secret=document.getElementById('syncSecret').value.trim();
-  if(enabled && secret.length<6){ document.getElementById('syncState').textContent='Passcode must be at least 6 characters.'; return; }
-  saveSyncCfg(Object.assign({}, syncCfg(), {enabled, secret}));
-  reflectCloudStatus();
-  if(enabled){
-    document.getElementById('syncState').textContent='Syncing…';
-    const res=await syncActivate();
-    document.getElementById('syncState').textContent='Sync status: '+res.status;
-    toast('Cloud sync '+(res.status==='unauthorized'?'failed (check passcode)':'enabled'));
-  } else { toast('Cloud sync disabled'); }
-};
-document.getElementById('syncNow').onclick=async()=>{
-  const secret=document.getElementById('syncSecret').value.trim();
-  if(secret.length<6){ document.getElementById('syncState').textContent='Passcode must be at least 6 characters.'; return; }
-  saveSyncCfg(Object.assign({}, syncCfg(), {enabled:true, secret}));
-  reflectCloudStatus();
-  document.getElementById('syncState').textContent='Syncing…';
-  const res=await syncActivate();
-  document.getElementById('syncState').textContent='Sync status: '+res.status;
-};
+function lockApp(){ passcode=null; location.reload(); }   // switch passcode = reload to gate
+document.getElementById('gateBtn').onclick=()=>enterApp(document.getElementById('gatePass').value);
+document.getElementById('gatePass').addEventListener('keydown',e=>{ if(e.key==='Enter') enterApp(e.target.value); });
+document.getElementById('btnSync').onclick=lockApp;
 function scheduleSave(){
   setSaved(false);
   // Mark dirty immediately (not only in the debounced persist) so a pull can
@@ -2276,14 +2216,14 @@ function selectVisible(dir){
 // Keep multiple tabs of the same browser consistent: when another tab saves the
 // workspace, adopt it here — unless we're mid-edit or holding our own unsynced changes.
 window.addEventListener('storage', e=>{
-  if(e.key!==WS_KEY || !e.newValue) return;
+  if(!passcode || e.key!==wsLocalKey() || !e.newValue) return;   // only this passcode's cache
   if(editing || (workspace && workspace.dirty)) return;
   try{
     const incoming=JSON.parse(e.newValue);
     if(incoming && incoming.order && (incoming.updatedAt||0) > (workspace.updatedAt||0)){
       workspace=incoming;
       if(!workspace.currentId || !workspace.byId[workspace.currentId]) workspace.currentId=workspace.order[0];
-      loadFrom(workspace.byId[workspace.currentId]||newProjectData('TrueSight'));
+      loadFrom(workspace.byId[workspace.currentId]||newProjectData('Untitled'));
       refreshProjectDropdown(); renderHead(); render(); renderRaidIfVisible();
     }
   }catch(err){}
@@ -2408,26 +2348,13 @@ window.addEventListener('hashchange',()=>switchView(location.hash==='#raid'?'rai
 document.getElementById('raidAdd').onclick=addRaid;
 document.getElementById('raidSearch').addEventListener('input',e=>{ raidSearchTerm=e.target.value; renderRaid(); });
 
-const APP_VERSION='v16 (2026-07-01)';
+const APP_VERSION='v17 (2026-07-01)';
 (function init(){
   const vEl=document.getElementById('stVersion'); if(vEl) vEl.textContent=APP_VERSION;
   console.log('Project Planner build', APP_VERSION);
-  loadWorkspace();
-  loadFrom(workspace.byId[workspace.currentId] || newProjectData('TrueSight'));
-  refreshProjectDropdown();
-  renderHead(); render();
-  switchView(location.hash==='#raid'?'raid':'plan');
-  if(state.tasks.length) scrollToToday();
-  reflectCloudStatus();
-  // After first paint: if we have unsynced local changes, upload them; otherwise
-  // check the cloud for updates from another device. Never clobber local edits.
-  if(syncCfg().enabled && syncAvailable()){
-    setTimeout(async()=>{
-      if(workspace.dirty){ await cloudPush(); }
-      else { const r=await cloudPull(); if(r.status==='pulled'){ scrollToToday(); toast('Pulled latest from cloud'); } }
-      reflectCloudStatus();
-    }, 200);
-  }
+  // Nothing loads until a passcode is entered — the gate stays up and the app
+  // stays empty. enterApp() (from the gate) loads that passcode's workspace.
+  const g=document.getElementById('gatePass'); if(g) g.focus();
 })();
 </script>
 </body>
