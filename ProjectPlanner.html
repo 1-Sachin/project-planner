@@ -52,6 +52,8 @@
   #hintBox button { width: 100%; margin-top: 6px; padding: 8px; border: 1px solid var(--border-strong); border-radius: 8px; background: #fff; cursor: pointer; font-family: inherit; font-size: 13px; }
   #hintBox button:hover { background: var(--row-hover); }
   .gate-hint-result { font-size: 13px; color: var(--text); margin: 10px 0 0; min-height: 16px; }
+  #recoverBanner { display: none; align-items: center; gap: 12px; padding: 8px 14px; background: #fef3c7; border-bottom: 1px solid #f0d98a; font-size: 13px; color: #78350f; flex: 0 0 auto; }
+  #recoverBanner button { flex: 0 0 auto; }
 
   /* ---------- Top nav (view switcher) ---------- */
   .topnav { display: flex; align-items: center; gap: 18px; padding: 6px 14px; background: #1f2430; color: #fff; flex: 0 0 auto; }
@@ -347,6 +349,12 @@
     </div>
     <p class="gate-note">Your passcode is your private space — it loads only the projects &amp; RAID saved under it. A different passcode opens a separate, empty workspace. Minimum 6 characters. Keep it safe: there is no reset — only the hint you set.</p>
   </div>
+</div>
+
+<div id="recoverBanner">
+  <span>📦 We found a previous plan saved on this browser that isn't in this passcode yet.</span>
+  <button class="tb primary" id="recoverBtn">Restore it here</button>
+  <button class="tb" id="recoverDismiss">Dismiss</button>
 </div>
 
 <div class="topnav">
@@ -876,7 +884,43 @@ async function enterApp(pc){
     if(res.status==='pulled') scrollToToday();
     reflectCloudStatus();
   }
+  maybeOfferRestore();   // if this passcode is empty but a pre-v17 plan exists locally, offer to restore it
 }
+// ---------- Recover a pre-v17 local plan (old storage key) ----------
+function legacyWorkspace(){
+  try{
+    const raw=localStorage.getItem('projectPlanner.workspace.v1');
+    if(!raw) return null;
+    const w=JSON.parse(raw);
+    if(w && Array.isArray(w.order) && w.order.length){
+      const hasContent=w.order.some(id=>{ const p=w.byId&&w.byId[id]; return p && ((p.tasks&&p.tasks.length)||(p.raid&&p.raid.length)); });
+      return hasContent ? w : null;
+    }
+  }catch(e){}
+  return null;
+}
+function workspaceIsEmpty(){
+  return !workspace.order.some(id=>{ const p=workspace.byId[id]; return p && ((p.tasks&&p.tasks.length)||(p.raid&&p.raid.length)); });
+}
+function maybeOfferRestore(){
+  const b=document.getElementById('recoverBanner');
+  b.style.display = (legacyWorkspace() && workspaceIsEmpty()) ? 'flex' : 'none';
+}
+function restoreLegacy(){
+  const lw=legacyWorkspace(); if(!lw){ toast('No previous plan found on this browser'); return; }
+  workspace=lw; workspace.updatedAt=nowMs(); workspace.dirty=true;
+  if(!workspace.currentId || !workspace.byId[workspace.currentId]) workspace.currentId=workspace.order[0];
+  saveWorkspace();
+  loadFrom(workspace.byId[workspace.currentId]);
+  refreshProjectDropdown(); renderHead(); render(); renderRaidIfVisible();
+  if(state.tasks.length) scrollToToday();
+  cloudPush();
+  document.getElementById('recoverBanner').style.display='none';
+  toast('Previous plan restored and saved under this passcode');
+}
+document.getElementById('recoverBtn').onclick=restoreLegacy;
+document.getElementById('recoverDismiss').onclick=()=>{ document.getElementById('recoverBanner').style.display='none'; };
+
 function lockApp(){ passcode=null; location.reload(); }   // switch passcode = reload to gate
 document.getElementById('gateBtn').onclick=()=>enterApp(document.getElementById('gatePass').value);
 document.getElementById('gatePass').addEventListener('keydown',e=>{ if(e.key==='Enter') enterApp(e.target.value); });
@@ -2401,7 +2445,7 @@ window.addEventListener('hashchange',()=>switchView(location.hash==='#raid'?'rai
 document.getElementById('raidAdd').onclick=addRaid;
 document.getElementById('raidSearch').addEventListener('input',e=>{ raidSearchTerm=e.target.value; renderRaid(); });
 
-const APP_VERSION='v18 (2026-07-01)';
+const APP_VERSION='v19 (2026-07-01)';
 (function init(){
   const vEl=document.getElementById('stVersion'); if(vEl) vEl.textContent=APP_VERSION;
   console.log('Project Planner build', APP_VERSION);
