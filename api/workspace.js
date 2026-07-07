@@ -39,6 +39,33 @@ export default async function handler(req, res) {
 
   const auth = req.headers['authorization'] || '';
   const passcode = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+
+  // ---- Passcode hints ----------------------------------------------------
+  // A non-secret reminder keyed by a name, so someone who FORGOT their passcode
+  // can look up their hint. GET needs no passcode; saving requires one (min 6)
+  // to limit anonymous writes. Hints must never contain the actual passcode.
+  const hintName = (req.query && req.query.hint) ? String(req.query.hint).trim().toLowerCase() : '';
+  if (hintName) {
+    const hkey = 'planner:hint:' + createHash('sha256').update('planner-hint:' + hintName).digest('hex');
+    try {
+      if (req.method === 'GET') {
+        const out = await kv(['GET', hkey]);
+        const data = out.result ? JSON.parse(out.result) : null;
+        return res.status(200).json({ hint: data ? data.hint : null });
+      }
+      if (req.method === 'PUT' || req.method === 'POST') {
+        if (passcode.length < 6) return res.status(401).json({ error: 'passcode required to save a hint' });
+        let body = req.body;
+        if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = null; } }
+        const hint = body && typeof body.hint === 'string' ? body.hint.slice(0, 200) : '';
+        await kv(['SET', hkey, JSON.stringify({ hint })]);
+        return res.status(200).json({ ok: true });
+      }
+      return res.status(405).json({ error: 'method not allowed' });
+    } catch (e) { return res.status(500).json({ error: String(e.message || e) }); }
+  }
+
+  // ---- Workspace (passcode-protected) ------------------------------------
   // A passcode is the only thing protecting a workspace, so require a decent length.
   if (passcode.length < 6) return res.status(401).json({ error: 'passcode required (min 6 characters)' });
 

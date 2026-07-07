@@ -46,6 +46,12 @@
   #gateBtn:hover { background: #1b5e3a; }
   .gate-err { color: #b91c1c; font-size: 13px; min-height: 18px; margin: 10px 0 0; }
   .gate-note { color: var(--muted); font-size: 11.5px; line-height: 1.6; margin: 8px 0 0; }
+  .gate-forgot { background: none; border: none; color: var(--accent-2); font-size: 12.5px; cursor: pointer; font-family: inherit; padding: 4px; margin-top: 2px; text-decoration: underline; }
+  #hintBox { margin: 8px 0 4px; }
+  #hintBox input { width: 100%; padding: 9px 10px; border: 1px solid var(--border-strong); border-radius: 8px; font-size: 14px; font-family: inherit; text-align: center; }
+  #hintBox button { width: 100%; margin-top: 6px; padding: 8px; border: 1px solid var(--border-strong); border-radius: 8px; background: #fff; cursor: pointer; font-family: inherit; font-size: 13px; }
+  #hintBox button:hover { background: var(--row-hover); }
+  .gate-hint-result { font-size: 13px; color: var(--text); margin: 10px 0 0; min-height: 16px; }
 
   /* ---------- Top nav (view switcher) ---------- */
   .topnav { display: flex; align-items: center; gap: 18px; padding: 6px 14px; background: #1f2430; color: #fff; flex: 0 0 auto; }
@@ -333,7 +339,13 @@
     <input id="gatePass" type="password" placeholder="Passcode" autocomplete="off" />
     <button id="gateBtn">Open</button>
     <p class="gate-err" id="gateErr"></p>
-    <p class="gate-note">Your passcode is your private space — it loads only the projects &amp; RAID saved under it. A different passcode opens a separate, empty workspace. Minimum 6 characters. Keep it safe: there is no reset.</p>
+    <button type="button" id="forgotLink" class="gate-forgot">Forgot your passcode?</button>
+    <div id="hintBox" style="display:none">
+      <input id="hintName" placeholder="Your name (as you saved it)" autocomplete="off" />
+      <button type="button" id="hintShow">Show my hint</button>
+      <p id="hintResult" class="gate-hint-result"></p>
+    </div>
+    <p class="gate-note">Your passcode is your private space — it loads only the projects &amp; RAID saved under it. A different passcode opens a separate, empty workspace. Minimum 6 characters. Keep it safe: there is no reset — only the hint you set.</p>
   </div>
 </div>
 
@@ -386,6 +398,7 @@
   <button class="tb" id="btnCsvImport" title="Import a task list from CSV (replaces the current plan)">⭱ Import CSV</button>
   <button class="tb" id="btnJiraOut" title="Export a CSV keyed by Jira Issue Key to update tickets (via Rovo, the CSV importer, or an API script)">→ Jira update</button>
   <button class="tb" id="btnPrint" title="Print / PDF">Print</button>
+  <button class="tb" id="btnHint" title="Set a reminder hint for your passcode (in case you forget)">❔ Hint</button>
   <button class="tb" id="btnSync" title="Lock &amp; switch passcode (reloads)">🔒 Lock</button>
   <input type="file" id="fileInput" accept=".json,application/json" style="display:none" />
   <input type="file" id="jiraInput" accept=".csv,text/csv" style="display:none" />
@@ -868,6 +881,46 @@ function lockApp(){ passcode=null; location.reload(); }   // switch passcode = r
 document.getElementById('gateBtn').onclick=()=>enterApp(document.getElementById('gatePass').value);
 document.getElementById('gatePass').addEventListener('keydown',e=>{ if(e.key==='Enter') enterApp(e.target.value); });
 document.getElementById('btnSync').onclick=lockApp;
+
+// ---------- Passcode hints (non-secret reminders keyed by a name) ----------
+async function fetchHint(name){
+  if(!syncAvailable()) return {error:'Hints need the online (https) app.'};
+  try{ const r=await fetch('/api/workspace?hint='+encodeURIComponent(name)); if(!r.ok) return {error:'Lookup failed.'}; const j=await r.json(); return {hint:j.hint||null}; }
+  catch(e){ return {error:'Offline.'}; }
+}
+async function saveHint(name, hint){
+  try{ const r=await fetch('/api/workspace?hint='+encodeURIComponent(name),{method:'PUT',headers:authHeaders(),body:JSON.stringify({hint})}); return r.ok; }
+  catch(e){ return false; }
+}
+// Gate: reveal the hint lookup
+document.getElementById('forgotLink').onclick=()=>{
+  const box=document.getElementById('hintBox');
+  box.style.display = box.style.display==='none' ? 'block' : 'none';
+  if(box.style.display==='block') document.getElementById('hintName').focus();
+};
+async function doShowHint(){
+  const name=document.getElementById('hintName').value.trim();
+  const res=document.getElementById('hintResult');
+  if(name.length<1){ res.textContent='Enter the name you saved your hint under.'; return; }
+  res.textContent='Looking up…';
+  const r=await fetchHint(name);
+  if(r.error) res.textContent=r.error;
+  else if(r.hint) res.innerHTML='💡 <b>'+esc(r.hint)+'</b>';
+  else res.textContent='No hint saved for “'+esc(name)+'”.';
+}
+document.getElementById('hintShow').onclick=doShowHint;
+document.getElementById('hintName').addEventListener('keydown',e=>{ if(e.key==='Enter') doShowHint(); });
+// Toolbar: set/update your hint
+document.getElementById('btnHint').onclick=async()=>{
+  if(!passcode) return;
+  const name=prompt('A name to find your hint by (e.g. your first name). If you forget your passcode, you’ll type this on the login screen to see the hint:', (workspace&&workspace.hintName)||'');
+  if(name===null||!name.trim()) return;
+  const hint=prompt('Your reminder hint — do NOT put the actual passcode here:', '');
+  if(hint===null) return;
+  if(workspace){ workspace.hintName=name.trim(); saveWorkspace(); }
+  const ok=await saveHint(name.trim(), hint.trim());
+  toast(ok? 'Hint saved for “'+name.trim()+'”' : 'Could not save hint');
+};
 function scheduleSave(){
   setSaved(false);
   // Mark dirty immediately (not only in the debounced persist) so a pull can
@@ -2348,7 +2401,7 @@ window.addEventListener('hashchange',()=>switchView(location.hash==='#raid'?'rai
 document.getElementById('raidAdd').onclick=addRaid;
 document.getElementById('raidSearch').addEventListener('input',e=>{ raidSearchTerm=e.target.value; renderRaid(); });
 
-const APP_VERSION='v17 (2026-07-01)';
+const APP_VERSION='v18 (2026-07-01)';
 (function init(){
   const vEl=document.getElementById('stVersion'); if(vEl) vEl.textContent=APP_VERSION;
   console.log('Project Planner build', APP_VERSION);
